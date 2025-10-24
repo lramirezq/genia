@@ -105,16 +105,8 @@ const loadData = async () => {
       catalogs.value = catalogsRes.data.data.catalogs
     }
     if (permissionsRes.data.success) {
-      // Map permissions with user emails and catalog names
-      permissions.value = permissionsRes.data.data.permissions.map(permission => {
-        const user = users.value.find(u => u.userId === permission.userId)
-        const catalog = catalogs.value.find(c => c.catalogId === permission.catalogId)
-        return {
-          ...permission,
-          userEmail: user?.email || permission.userId,
-          catalogName: catalog?.name || permission.catalogId
-        }
-      })
+      // Permissions already come enriched with userEmail and catalogName from backend
+      permissions.value = permissionsRes.data.data.permissions
     }
   } catch (error) {
     console.error('Error loading data:', error)

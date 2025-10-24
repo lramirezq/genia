@@ -520,6 +520,8 @@ Resources:
             TableName: !Ref CatalogsTable
         - DynamoDBReadPolicy:
             TableName: !Ref PermissionsTable
+        - DynamoDBReadPolicy:
+            TableName: !Ref UserRolesTable
       Events:
         Api:
           Type: Api
@@ -619,6 +621,13 @@ Resources:
       Policies:
         - DynamoDBReadPolicy:
             TableName: !Ref PermissionsTable
+        - DynamoDBReadPolicy:
+            TableName: !Ref CatalogsTable
+        - Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Action: cognito-idp:AdminGetUser
+              Resource: !GetAtt CognitoUserPool.Arn
       Events:
         Api:
           Type: Api
