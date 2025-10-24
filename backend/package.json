@@ -1,0 +1,25 @@
+{
+  "name": "sistema-genia-backend",
+  "version": "1.0.0",
+  "description": "Sistema GenIA Backend - AWS SAM",
+  "scripts": {
+    "build": "sam build",
+    "deploy": "sam deploy",
+    "local": "sam local start-api",
+    "logs": "sam logs -n LoginFunction --stack-name sistema-genia-dev --tail"
+  },
+  "dependencies": {
+    "@aws-sdk/client-cognito-identity-provider": "^3.450.0",
+    "@aws-sdk/client-dynamodb": "^3.450.0",
+    "@aws-sdk/client-s3": "^3.450.0",
+    "@aws-sdk/client-bedrock-runtime": "^3.450.0",
+    "@aws-sdk/client-bedrock-agent": "^3.450.0",
+    "@aws-sdk/client-opensearch": "^3.450.0",
+    "@aws-sdk/lib-dynamodb": "^3.450.0",
+    "uuid": "^9.0.1",
+    "jsonwebtoken": "^9.0.2"
+  },
+  "devDependencies": {
+    "jest": "^29.7.0"
+  }
+}

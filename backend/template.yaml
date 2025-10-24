@@ -1,0 +1,981 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: Sistema GenIA - Backend
+
+Parameters:
+  Environment:
+    Type: String
+    Default: dev
+    AllowedValues: [dev, staging, prod]
+
+Globals:
+  Function:
+    Runtime: nodejs18.x
+    Timeout: 15
+    MemorySize: 256
+    Environment:
+      Variables:
+        ENVIRONMENT: !Ref Environment
+        COGNITO_USER_POOL_ID: !Ref CognitoUserPool
+        COGNITO_CLIENT_ID: !Ref CognitoUserPoolClient
+        DOCUMENTS_BUCKET: !Ref DocumentsBucket
+        CATALOGS_TABLE: !Ref CatalogsTable
+        PERMISSIONS_TABLE: !Ref PermissionsTable
+        USER_ROLES_TABLE: !Ref UserRolesTable
+        OPENSEARCH_COLLECTION_ARN: !GetAtt OpenSearchCollection.Arn
+        BEDROCK_KB_ROLE_ARN: !GetAtt BedrockKnowledgeBaseRole.Arn
+        BEDROCK_AGENT_ROLE_ARN: !GetAtt BedrockAgentRole.Arn
+
+Resources:
+  # Cognito
+  CognitoUserPool:
+    Type: AWS::Cognito::UserPool
+    Properties:
+      UserPoolName: !Sub "${Environment}-genia-users"
+      AutoVerifiedAttributes: [email]
+      Policies:
+        PasswordPolicy:
+          MinimumLength: 8
+          RequireUppercase: true
+          RequireLowercase: true
+          RequireNumbers: true
+
+  CognitoUserPoolClient:
+    Type: AWS::Cognito::UserPoolClient
+    Properties:
+      UserPoolId: !Ref CognitoUserPool
+      ClientName: !Sub "${Environment}-genia-client"
+      GenerateSecret: false
+      ExplicitAuthFlows:
+        - ADMIN_NO_SRP_AUTH
+        - USER_PASSWORD_AUTH
+
+  # S3
+  DocumentsBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub "${Environment}-genia-docs-${AWS::AccountId}"
+      CorsConfiguration:
+        CorsRules:
+          - AllowedHeaders: ['*']
+            AllowedMethods: [GET, PUT, POST, DELETE, HEAD]
+            AllowedOrigins: ['*']
+            ExposedHeaders: [ETag]
+            MaxAge: 3000
+
+  # DynamoDB
+  CatalogsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub "${Environment}-genia-catalogs"
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: catalogId
+          AttributeType: S
+      KeySchema:
+        - AttributeName: catalogId
+          KeyType: HASH
+
+  PermissionsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub "${Environment}-genia-permissions"
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: userId
+          AttributeType: S
+        - AttributeName: catalogId
+          AttributeType: S
+      KeySchema:
+        - AttributeName: userId
+          KeyType: HASH
+        - AttributeName: catalogId
+          KeyType: RANGE
+
+  UserRolesTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub "${Environment}-genia-user-roles"
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: userId
+          AttributeType: S
+      KeySchema:
+        - AttributeName: userId
+          KeyType: HASH
+
+  # OpenSearch Serverless Security Policies
+  OpenSearchEncryptionPolicy:
+    Type: AWS::OpenSearchServerless::SecurityPolicy
+    Properties:
+      Name: !Sub "genia-${Environment}-encryption"
+      Type: encryption
+      Policy: !Sub |
+        {
+          "Rules": [
+            {
+              "ResourceType": "collection",
+              "Resource": ["collection/genia-${Environment}"]
+            }
+          ],
+          "AWSOwnedKey": true
+        }
+
+  OpenSearchNetworkPolicy:
+    Type: AWS::OpenSearchServerless::SecurityPolicy
+    Properties:
+      Name: !Sub "genia-${Environment}-network"
+      Type: network
+      Policy: !Sub |
+        [
+          {
+            "Rules": [
+              {
+                "ResourceType": "collection",
+                "Resource": ["collection/genia-${Environment}"]
+              }
+            ],
+            "AllowFromPublic": true
+          }
+        ]
+
+  OpenSearchDataAccessPolicy:
+    Type: AWS::OpenSearchServerless::AccessPolicy
+    DependsOn: 
+      - BedrockKnowledgeBaseRole
+      - CreateCatalogFunctionRole
+      - CreateKBAsyncFunctionRole
+    Properties:
+      Name: !Sub "genia-${Environment}-data-access"
+      Type: data
+      Policy: !Sub 
+        - |
+          [
+            {
+              "Rules": [
+                {
+                  "ResourceType": "collection",
+                  "Resource": ["collection/genia-${Environment}"],
+                  "Permission": [
+                    "aoss:CreateCollectionItems",
+                    "aoss:DeleteCollectionItems",
+                    "aoss:UpdateCollectionItems",
+                    "aoss:DescribeCollectionItems"
+                  ]
+                },
+                {
+                  "ResourceType": "index",
+                  "Resource": ["index/genia-${Environment}/*"],
+                  "Permission": [
+                    "aoss:CreateIndex",
+                    "aoss:DeleteIndex",
+                    "aoss:UpdateIndex",
+                    "aoss:DescribeIndex",
+                    "aoss:ReadDocument",
+                    "aoss:WriteDocument"
+                  ]
+                }
+              ],
+              "Principal": [
+                "${BedrockRoleArn}",
+                "${OpenSearchRoleArn}",
+                "${CreateKBAsyncRoleArn}"
+              ]
+            }
+          ]
+        - BedrockRoleArn: !GetAtt BedrockKnowledgeBaseRole.Arn
+          OpenSearchRoleArn: !GetAtt CreateCatalogFunctionRole.Arn
+          CreateKBAsyncRoleArn: !GetAtt CreateKBAsyncFunctionRole.Arn
+
+  # OpenSearch Serverless Collection
+  OpenSearchCollection:
+    Type: AWS::OpenSearchServerless::Collection
+    DependsOn: 
+      - OpenSearchEncryptionPolicy
+      - OpenSearchNetworkPolicy
+      - OpenSearchDataAccessPolicy
+    Properties:
+      Name: !Sub "genia-${Environment}"
+      Type: VECTORSEARCH
+      Description: "Vector search collection for GenIA system"
+
+  # IAM Roles for Bedrock and OpenSearch
+  OpenSearchAccessRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "${Environment}-opensearch-access-role"
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              AWS: !Sub "arn:aws:iam::${AWS::AccountId}:root"
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: OpenSearchAccessPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - aoss:*
+                Resource: "*"
+
+  BedrockKnowledgeBaseRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "${Environment}-bedrock-kb-role"
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: bedrock.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: BedrockKnowledgeBasePolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:ListBucket
+                Resource: "*"
+              - Effect: Allow
+                Action:
+                  - aoss:*
+                Resource: "*"
+              - Effect: Allow
+                Action:
+                  - bedrock:InvokeModel
+                Resource: "*"
+
+  BedrockAgentRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "${Environment}-bedrock-agent-role"
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: bedrock.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: BedrockAgentPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - bedrock:InvokeModel
+                  - bedrock:Retrieve
+                Resource: "*"
+
+  # API Gateway
+  ApiGateway:
+    Type: AWS::Serverless::Api
+    Properties:
+      StageName: !Ref Environment
+      Cors:
+        AllowMethods: "'GET,POST,PUT,DELETE,OPTIONS'"
+        AllowHeaders: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'"
+        AllowOrigin: "'*'"
+        AllowCredentials: false
+      Auth:
+        DefaultAuthorizer: CognitoAuthorizer
+        Authorizers:
+          CognitoAuthorizer:
+            UserPoolArn: !GetAtt CognitoUserPool.Arn
+
+  # Lambda Functions
+  LoginFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: src/auth/login/
+      Handler: index.handler
+      Policies:
+        - Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Action: cognito-idp:*
+              Resource: !GetAtt CognitoUserPool.Arn
+      Events:
+        Api:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ApiGateway
+            Path: /auth/login
+            Method: post
+            Auth:
+              Authorizer: NONE
+
+  ChangePasswordFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: src/auth/change-password/
+      Handler: index.handler
+      Policies:
+        - Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Action: cognito-idp:*
+              Resource: !GetAtt CognitoUserPool.Arn
+      Events:
+        Api:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ApiGateway
+            Path: /auth/change-password
+            Method: post
+            Auth:
+              Authorizer: NONE
+
+  RespondToChallengeFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: src/auth/respond-to-challenge/
+      Handler: index.handler
+      Policies:
+        - Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Action: cognito-idp:*
+              Resource: !GetAtt CognitoUserPool.Arn
+      Events:
+        Api:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ApiGateway
+            Path: /auth/respond-to-challenge
+            Method: post
+            Auth:
+              Authorizer: NONE
+
+  CreateUserFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: src/users/create-user/
+      Handler: index.handler
+      Policies:
+        - Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Action: cognito-idp:*
+              Resource: !GetAtt CognitoUserPool.Arn
+        - DynamoDBCrudPolicy:
+            TableName: !Ref UserRolesTable
+      Events:
+        Api:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ApiGateway
+            Path: /users
+            Method: post
+            Auth:
+              Authorizer: NONE
+
+  ListUsersFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: src/users/list-users/
+      Handler: index.handler
+      Policies:
+        - Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Action: cognito-idp:*
+              Resource: !GetAtt CognitoUserPool.Arn
+      Events:
+        Api:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ApiGateway
+            Path: /users
+            Method: get
+
+  GetUserRoleFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: src/users/get-user-role/
+      Handler: index.handler
+      Policies:
+        - DynamoDBReadPolicy:
+            TableName: !Ref UserRolesTable
+      Events:
+        Api:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ApiGateway
+            Path: /users/role
+            Method: get
+
+  UpdateUserFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: src/users/update-user/
+      Handler: index.handler
+      Policies:
+        - Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Action: cognito-idp:*
+              Resource: !GetAtt CognitoUserPool.Arn
+        - DynamoDBCrudPolicy:
+            TableName: !Ref UserRolesTable
+      Events:
+        Api:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ApiGateway
+            Path: /users/{email}
+            Method: put
+
+  DeleteUserFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: src/users/delete-user/
+      Handler: index.handler
+      Policies:
+        - Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Action: cognito-idp:*
+              Resource: !GetAtt CognitoUserPool.Arn
+        - DynamoDBCrudPolicy:
+            TableName: !Ref UserRolesTable
+      Events:
+        Api:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ApiGateway
+            Path: /users/{email}
+            Method: delete
+
+  ResetPasswordFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: src/users/reset-password/
+      Handler: index.handler
+      Policies:
+        - Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Action: cognito-idp:*
+              Resource: !GetAtt CognitoUserPool.Arn
+      Events:
+        Api:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ApiGateway
+            Path: /users/{email}/reset-password
+            Method: post
+
+  CreateCatalogFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: src/catalogs/create-catalog/
+      Handler: index.handler
+      Timeout: 60
+      MemorySize: 512
+      Environment:
+        Variables:
+          CREATE_KB_FUNCTION_NAME: !Ref CreateKBAsyncFunction
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref CatalogsTable
+        - DynamoDBCrudPolicy:
+            TableName: !Ref PermissionsTable
+        - S3CrudPolicy:
+            BucketName: !Ref DocumentsBucket
+        - Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Action: [bedrock:*, es:*, aoss:*, lambda:InvokeFunction]
+              Resource: "*"
+            - Effect: Allow
+              Action: iam:PassRole
+              Resource: 
+                - !GetAtt BedrockKnowledgeBaseRole.Arn
+                - !GetAtt BedrockAgentRole.Arn
+            - Effect: Allow
+              Action: sts:AssumeRole
+              Resource: !GetAtt OpenSearchAccessRole.Arn
+      Events:
+        Api:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ApiGateway
+            Path: /catalogs
+            Method: post
+
+  ListCatalogsFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: src/catalogs/list-catalogs/
+      Handler: index.handler
+      Policies:
+        - DynamoDBReadPolicy:
+            TableName: !Ref CatalogsTable
+        - DynamoDBReadPolicy:
+            TableName: !Ref PermissionsTable
+      Events:
+        Api:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ApiGateway
+            Path: /catalogs
+            Method: get
+
+  UploadDocumentFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: src/catalogs/upload-document/
+      Handler: index.handler
+      Policies:
+        - S3CrudPolicy:
+            BucketName: !Ref DocumentsBucket
+        - DynamoDBReadPolicy:
+            TableName: !Ref CatalogsTable
+        - DynamoDBReadPolicy:
+            TableName: !Ref PermissionsTable
+        - Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Action: bedrock:*
+              Resource: "*"
+      Events:
+        Api:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ApiGateway
+            Path: /catalogs/{catalogId}/upload
+            Method: post
+
+  SyncDataSourceFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: src/bedrock/sync-datasource/
+      Handler: index.handler
+      Timeout: 60
+      Policies:
+        - DynamoDBReadPolicy:
+            TableName: !Ref CatalogsTable
+        - Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Action: bedrock:*
+              Resource: "*"
+
+  InvokeAgentFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: src/chat/invoke-agent/
+      Handler: index.handler
+      Timeout: 60
+      MemorySize: 512
+      Policies:
+        - DynamoDBReadPolicy:
+            TableName: !Ref CatalogsTable
+        - DynamoDBReadPolicy:
+            TableName: !Ref PermissionsTable
+        - S3ReadPolicy:
+            BucketName: !Ref DocumentsBucket
+        - Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Action: bedrock:*
+              Resource: "*"
+      Events:
+        Api:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ApiGateway
+            Path: /chat
+            Method: post
+
+  AssignPermissionFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: src/permissions/assign-permission/
+      Handler: index.handler
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref PermissionsTable
+      Events:
+        Api:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ApiGateway
+            Path: /permissions
+            Method: post
+
+  ListPermissionsFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: src/permissions/list-permissions/
+      Handler: index.handler
+      Policies:
+        - DynamoDBReadPolicy:
+            TableName: !Ref PermissionsTable
+      Events:
+        Api:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ApiGateway
+            Path: /permissions
+            Method: get
+
+  RevokePermissionFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: src/permissions/revoke-permission/
+      Handler: index.handler
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref PermissionsTable
+      Events:
+        Api:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ApiGateway
+            Path: /permissions
+            Method: delete
+
+  DeleteCatalogFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: src/catalogs/delete-catalog/
+      Handler: index.handler
+      Timeout: 60
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref CatalogsTable
+        - DynamoDBCrudPolicy:
+            TableName: !Ref PermissionsTable
+        - S3CrudPolicy:
+            BucketName: !Ref DocumentsBucket
+        - Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Action:
+                - bedrock:DeleteAgent
+                - bedrock:DeleteKnowledgeBase
+                - bedrock:DeleteDataSource
+              Resource: "*"
+      Events:
+        Api:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ApiGateway
+            Path: /catalogs/{catalogId}
+            Method: delete
+
+  ListDocumentsFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: src/catalogs/list-documents/
+      Handler: index.handler
+      Policies:
+        - S3ReadPolicy:
+            BucketName: !Ref DocumentsBucket
+      Events:
+        Api:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ApiGateway
+            Path: /catalogs/{catalogId}/documents
+            Method: get
+
+  DeleteDocumentFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: src/catalogs/delete-document/
+      Handler: index.handler
+      Policies:
+        - S3CrudPolicy:
+            BucketName: !Ref DocumentsBucket
+      Events:
+        Api:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ApiGateway
+            Path: /catalogs/{catalogId}/documents/{documentName}
+            Method: delete
+
+  DownloadDocumentFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: src/catalogs/download-document/
+      Handler: index.handler
+      Policies:
+        - S3ReadPolicy:
+            BucketName: !Ref DocumentsBucket
+        - DynamoDBReadPolicy:
+            TableName: !Ref CatalogsTable
+        - DynamoDBReadPolicy:
+            TableName: !Ref PermissionsTable
+      Events:
+        Api:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ApiGateway
+            Path: /catalogs/{catalogId}/download/{fileName}
+            Method: get
+
+  # OPTIONS handler for CORS preflight
+  OptionsHandler:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: src/shared/
+      Handler: options-handler.handler
+      Events:
+        LoginOptions:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ApiGateway
+            Path: /auth/login
+            Method: options
+            Auth:
+              Authorizer: NONE
+        ChangePasswordOptions:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ApiGateway
+            Path: /auth/change-password
+            Method: options
+            Auth:
+              Authorizer: NONE
+        RespondToChallengeOptions:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ApiGateway
+            Path: /auth/respond-to-challenge
+            Method: options
+            Auth:
+              Authorizer: NONE
+        UsersOptions:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ApiGateway
+            Path: /users
+            Method: options
+            Auth:
+              Authorizer: NONE
+        CatalogsOptions:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ApiGateway
+            Path: /catalogs
+            Method: options
+            Auth:
+              Authorizer: NONE
+        UserRoleOptions:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ApiGateway
+            Path: /users/role
+            Method: options
+            Auth:
+              Authorizer: NONE
+        UserEmailOptions:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ApiGateway
+            Path: /users/{email}
+            Method: options
+            Auth:
+              Authorizer: NONE
+        ResetPasswordOptions:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ApiGateway
+            Path: /users/{email}/reset-password
+            Method: options
+            Auth:
+              Authorizer: NONE
+        PermissionsOptions:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ApiGateway
+            Path: /permissions
+            Method: options
+            Auth:
+              Authorizer: NONE
+        CatalogIdOptions:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ApiGateway
+            Path: /catalogs/{catalogId}
+            Method: options
+            Auth:
+              Authorizer: NONE
+        DocumentsOptions:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ApiGateway
+            Path: /catalogs/{catalogId}/documents
+            Method: options
+            Auth:
+              Authorizer: NONE
+        UploadOptions:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ApiGateway
+            Path: /catalogs/{catalogId}/upload
+            Method: options
+            Auth:
+              Authorizer: NONE
+        DeleteDocumentOptions:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ApiGateway
+            Path: /catalogs/{catalogId}/documents/{documentName}
+            Method: options
+            Auth:
+              Authorizer: NONE
+        DownloadDocumentOptions:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ApiGateway
+            Path: /catalogs/{catalogId}/download/{fileName}
+            Method: options
+            Auth:
+              Authorizer: NONE
+        ChatOptions:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ApiGateway
+            Path: /chat
+            Method: options
+            Auth:
+              Authorizer: NONE
+        StatsOptions:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ApiGateway
+            Path: /stats
+            Method: options
+            Auth:
+              Authorizer: NONE
+        CatalogStatusOptions:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ApiGateway
+            Path: /catalogs/{catalogId}/status
+            Method: options
+            Auth:
+              Authorizer: NONE
+        SyncCatalogOptions:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ApiGateway
+            Path: /catalogs/{catalogId}/sync
+            Method: options
+            Auth:
+              Authorizer: NONE
+
+  CreateKBAsyncFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: src/catalogs/create-kb-async/
+      Handler: index.handler
+      Timeout: 900
+      MemorySize: 512
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref CatalogsTable
+        - Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Action:
+                - bedrock:*
+                - aoss:*
+                - es:*
+              Resource: "*"
+            - Effect: Allow
+              Action: iam:PassRole
+              Resource: 
+                - !GetAtt BedrockKnowledgeBaseRole.Arn
+                - !GetAtt BedrockAgentRole.Arn
+
+  GetCatalogStatusFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: src/catalogs/get-catalog-status/
+      Handler: index.handler
+      Policies:
+        - DynamoDBReadPolicy:
+            TableName: !Ref CatalogsTable
+      Events:
+        Api:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ApiGateway
+            Path: /catalogs/{catalogId}/status
+            Method: get
+            Auth:
+              Authorizer: NONE
+
+  SyncCatalogFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: src/catalogs/sync-catalog/
+      Handler: index.handler
+      Policies:
+        - DynamoDBReadPolicy:
+            TableName: !Ref CatalogsTable
+        - DynamoDBReadPolicy:
+            TableName: !Ref PermissionsTable
+        - Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Action: bedrock:*
+              Resource: "*"
+      Events:
+        Api:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ApiGateway
+            Path: /catalogs/{catalogId}/sync
+            Method: post
+
+  GetStatsFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: src/stats/get-stats/
+      Handler: index.handler
+      Policies:
+        - DynamoDBReadPolicy:
+            TableName: !Ref CatalogsTable
+        - DynamoDBReadPolicy:
+            TableName: !Ref PermissionsTable
+        - S3ReadPolicy:
+            BucketName: !Ref DocumentsBucket
+      Events:
+        Api:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ApiGateway
+            Path: /stats
+            Method: get
+
+  # S3 Permission (will configure notification manually later)
+  S3InvokeLambdaPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref SyncDataSourceFunction
+      Principal: s3.amazonaws.com
+      SourceArn: !Sub "arn:aws:s3:::${Environment}-genia-docs-${AWS::AccountId}/*"
+
+Outputs:
+  ApiUrl:
+    Value: !Sub "https://${ApiGateway}.execute-api.${AWS::Region}.amazonaws.com/${Environment}"
+  UserPoolId:
+    Value: !Ref CognitoUserPool
+  ClientId:
+    Value: !Ref CognitoUserPoolClient
+  BucketName:
+    Value: !Ref DocumentsBucket

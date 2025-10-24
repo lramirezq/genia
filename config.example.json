@@ -1,0 +1,11 @@
+{
+  "aws": {
+    "region": "us-east-1",
+    "apiUrl": "https://xxxxx.execute-api.us-east-1.amazonaws.com/dev",
+    "userPoolId": "us-east-1_xxxxxxxxx",
+    "clientId": "xxxxxxxxxxxxxxxxxxxxxxxxxx",
+    "bucketName": "dev-genia-docs-xxxxxxxxxxxx"
+  },
+  "environment": "dev",
+  "stackName": "sistema-genia-dev"
+}
