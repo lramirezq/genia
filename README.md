@@ -232,6 +232,6 @@ Para soporte, contacta a: lramirez@3htp.com
 ---
 
 **Versión**: 5.0.0  
-**Última actualización**: Enero 2025  
+**Última actualización**: 25 OCTUBRE  2025  
 **Estado**: Production Ready ✅  
-**Dominio**: https://genia.3htp.cloud
+
