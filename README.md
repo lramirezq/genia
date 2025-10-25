@@ -1,16 +1,17 @@
-# 🤖 Sistema GenIA v4.3.0
+# 🤖 Sistema GenIA v5.0.0
 
 Sistema de gestión de catálogos de documentos con IA conversacional usando AWS Bedrock, OpenSearch Serverless y Claude 3 Sonnet.
 
 ## 🚀 Características Principales
 
 - **Gestión de Catálogos**: Crea y administra catálogos de documentos con Knowledge Bases de AWS Bedrock
-- **Chat con IA**: Interactúa con tus documentos usando Claude 3 Sonnet con citaciones automáticas
+- **Chat con IA**: Interactúa con tus documentos usando Claude 3 Sonnet con fuzzy matching de fuentes
 - **Autenticación**: Sistema completo con AWS Cognito, roles (admin/user), y gestión de sesiones
+- **Sistema de Auditoría**: Registro completo de eventos (LOGIN, LOGOUT, CREATE_CATALOG, etc.)
 - **Permisos Granulares**: Control de acceso por catálogo (read/write) con asignación automática al creador
 - **Eliminación Completa**: Limpieza total de recursos (Agent, KB, DataSource, S3, permisos)
 - **Persistencia de Sesión**: Mantiene login activo al refrescar la página (F5)
-- **Cambio de Contraseña**: Flujo completo para contraseñas temporales de nuevos usuarios
+- **CRUD Usuarios**: Crear, editar, eliminar y resetear contraseñas
 
 ## 📋 Requisitos Previos
 
@@ -25,19 +26,20 @@ Sistema de gestión de catálogos de documentos con IA conversacional usando AWS
 ## 🏗️ Arquitectura
 
 ### Backend (AWS Serverless)
-- **26 Lambda Functions** (Node.js 20.x)
-- **API Gateway REST** con CORS
-- **DynamoDB** (5 tablas): Catalogs, Users, Permissions, UserRoles, ChatHistory
+- **28 Lambda Functions** (Node.js 18.x)
+- **API Gateway REST** con CORS y JWT Authorizer
+- **DynamoDB** (4 tablas): Catalogs, Permissions, UserRoles, AuditLogs
 - **S3**: Almacenamiento de documentos
 - **Cognito**: Autenticación y autorización
-- **Bedrock**: Agents y Knowledge Bases
+- **Bedrock**: Agents y Knowledge Bases por catálogo
 - **OpenSearch Serverless**: Índices vectoriales (FAISS)
 
 ### Frontend (Vue.js 3)
 - **Vue 3** + Composition API
 - **Pinia** para state management
-- **Vue Router** para navegación
+- **Vue Router** con guards de autenticación
 - **CloudFront + S3** para hosting
+- **Dominio personalizado**: genia.3htp.cloud
 
 ## 📦 Instalación Rápida
 
@@ -78,6 +80,7 @@ aws s3 sync dist/ s3://tu-bucket-frontend/ --delete
 
 ## 📚 Documentación Completa
 
+- **[FAQ.md](FAQ.md)**: Preguntas frecuentes con arquitectura, flujos y troubleshooting
 - **[DEPLOYMENT-GUIDE-COMPLETE.md](DEPLOYMENT-GUIDE-COMPLETE.md)**: Guía paso a paso para despliegue completo
 - **[AGENT-CONFIGURATION.md](AGENT-CONFIGURATION.md)**: Configuración de Agents y Knowledge Bases
 - **[CHANGELOG.md](CHANGELOG.md)**: Historial de cambios por versión
@@ -152,16 +155,53 @@ aws cloudfront create-invalidation --distribution-id EXXXXX --paths "/*"
 - **Backend**: ~$255/mes (Lambda + DynamoDB + OpenSearch + Bedrock)
 - **Total**: ~$264/mes (uso moderado)
 
+## ✨ Novedades v5.0.0
+
+### Sistema de Auditoría
+- **AuditLogsTable**: Registro de todos los eventos del sistema
+- **Vista de auditoría**: Solo admin, con filtros por acción y usuario
+- **Logging automático**: LOGIN/LOGOUT registrados automáticamente
+- **Campos completos**: eventId, timestamp, userId, userEmail, action, resourceType, ipAddress
+
+### Mejoras de Seguridad
+- **Fallback email/sub**: Detección de roles admin con compatibilidad legacy
+- **Búsqueda por sub**: ListUsersCommand con filtro en Cognito
+- **DynamoDBReadPolicy**: InvokeAgentFunction con permisos correctos
+
+### Fuzzy Matching de Fuentes
+- **Extracción de palabras clave**: Del nombre de archivo (>3 chars)
+- **Búsqueda inteligente**: Coincidencia en texto de respuesta
+- **Fallback mejorado**: Cuando Bedrock no retorna citations
+
+### Polling Mejorado
+- **Verificación continua**: Cada 5s mientras haya catálogos en "creating"
+- **Actualización automática**: UI se actualiza cuando están listos
+
+### Optimizaciones
+- **Timeout reducido**: Bedrock streaming 20s para evitar 504 Gateway Timeout
+- **FAQ completo**: Documentación exhaustiva del sistema
+
 ## 🐛 Troubleshooting
 
 ### Error: "Model access denied"
 Habilita los modelos en AWS Console → Bedrock → Model access
 
-### Error: "Knowledge Base not ACTIVE"
-Espera 5 minutos después de crear el catálogo
+### Catálogo se queda en "creating"
+Ver logs: CloudWatch → `/aws/lambda/sistema-genia-dev-CreateKBAsyncFunction`
 
-### Error: "OpenSearch index not found"
-Espera 60 segundos después de crear el índice
+### Error 403 en chat
+Verifica que el usuario tenga permisos en el catálogo o sea admin/owner
+
+### Audit logs no registra eventos
+Verifica que LogEventFunction tenga package.json con uuid ^9.0.0
+
+### "Usuario eliminado" en permisos
+El código ahora busca usuarios por sub en Cognito correctamente
+
+### Admin no ve todos los catálogos
+El código tiene fallback: busca rol por sub, luego por email
+
+**Ver [FAQ.md](FAQ.md) para más detalles de troubleshooting**
 
 ## 🤝 Contribuir
 
@@ -187,10 +227,11 @@ Este proyecto es privado y confidencial.
 
 ## 📞 Soporte
 
-Para soporte, contacta a: admin@tuempresa.com
+Para soporte, contacta a: lramirez@3htp.com
 
 ---
 
-**Versión**: 4.3.0  
-**Última actualización**: 2024  
-**Estado**: Production Ready ✅
+**Versión**: 5.0.0  
+**Última actualización**: Enero 2025  
+**Estado**: Production Ready ✅  
+**Dominio**: https://genia.3htp.cloud
