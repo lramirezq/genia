@@ -17,6 +17,7 @@ Globals:
       Variables:
         ENVIRONMENT: !Ref Environment
         COGNITO_USER_POOL_ID: !Ref CognitoUserPool
+        USER_POOL_ID: !Ref CognitoUserPool
         COGNITO_CLIENT_ID: !Ref CognitoUserPoolClient
         DOCUMENTS_BUCKET: !Ref DocumentsBucket
         CATALOGS_TABLE: !Ref CatalogsTable
@@ -387,6 +388,8 @@ Resources:
             - Effect: Allow
               Action: cognito-idp:*
               Resource: !GetAtt CognitoUserPool.Arn
+        - DynamoDBReadPolicy:
+            TableName: !Ref UserRolesTable
       Events:
         Api:
           Type: Api
@@ -522,6 +525,15 @@ Resources:
             TableName: !Ref PermissionsTable
         - DynamoDBReadPolicy:
             TableName: !Ref UserRolesTable
+        - S3ReadPolicy:
+            BucketName: !Ref DocumentsBucket
+        - Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Action:
+                - cognito-idp:AdminGetUser
+                - cognito-idp:ListUsers
+              Resource: !GetAtt CognitoUserPool.Arn
       Events:
         Api:
           Type: Api

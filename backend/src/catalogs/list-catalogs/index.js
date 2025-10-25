@@ -1,8 +1,12 @@
 const { DynamoDBClient } = require('@aws-sdk/client-dynamodb');
-const { DynamoDBDocumentClient, ScanCommand, GetItemCommand } = require('@aws-sdk/lib-dynamodb');
+const { DynamoDBDocumentClient, ScanCommand, GetCommand } = require('@aws-sdk/lib-dynamodb');
+const { S3Client, ListObjectsV2Command } = require('@aws-sdk/client-s3');
+const { CognitoIdentityProviderClient, ListUsersCommand } = require('@aws-sdk/client-cognito-identity-provider');
 const response = require('./response');
 
 const dynamoClient = DynamoDBDocumentClient.from(new DynamoDBClient());
+const s3Client = new S3Client();
+const cognitoClient = new CognitoIdentityProviderClient();
 
 exports.handler = async (event) => {
   try {
@@ -17,7 +21,7 @@ exports.handler = async (event) => {
     console.log('Checking role for userId:', userId);
     console.log('USER_ROLES_TABLE:', process.env.USER_ROLES_TABLE);
     try {
-      const userRoleResult = await dynamoClient.send(new GetItemCommand({
+      const userRoleResult = await dynamoClient.send(new GetCommand({
         TableName: process.env.USER_ROLES_TABLE,
         Key: { userId }
       }));
@@ -50,7 +54,47 @@ exports.handler = async (event) => {
       console.log('Catalogs found:', catalogsResult.Items?.length || 0);
     }
 
-    return response.success({ catalogs: catalogsResult.Items || [] });
+    // Enrich catalogs with document count and owner email
+    const enrichedCatalogs = await Promise.all(
+      (catalogsResult.Items || []).map(async (catalog) => {
+        // Get document count from S3
+        try {
+          const listCommand = new ListObjectsV2Command({
+            Bucket: process.env.DOCUMENTS_BUCKET,
+            Prefix: `catalogs/${catalog.catalogId}/`
+          });
+          const s3Result = await s3Client.send(listCommand);
+          const realFiles = (s3Result.Contents || []).filter(obj => 
+            obj.Size > 0 && !obj.Key.endsWith('/')
+          );
+          catalog.documentCount = realFiles.length;
+        } catch (err) {
+          console.log('Could not count documents for catalog:', catalog.catalogId, err);
+          catalog.documentCount = 0;
+        }
+        
+        // Get owner email from Cognito by sub
+        try {
+          const listResult = await cognitoClient.send(new ListUsersCommand({
+            UserPoolId: process.env.USER_POOL_ID,
+            Filter: `sub = "${catalog.ownerId}"`
+          }));
+          if (listResult.Users && listResult.Users.length > 0) {
+            const emailAttr = listResult.Users[0].Attributes?.find(attr => attr.Name === 'email');
+            catalog.ownerEmail = emailAttr?.Value || 'Desconocido';
+          } else {
+            catalog.ownerEmail = 'Desconocido';
+          }
+        } catch (err) {
+          console.log('Could not get owner email for catalog:', catalog.catalogId, err);
+          catalog.ownerEmail = 'Desconocido';
+        }
+        
+        return catalog;
+      })
+    );
+
+    return response.success({ catalogs: enrichedCatalogs });
 
   } catch (error) {
     console.error('List catalogs error:', error);

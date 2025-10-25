@@ -1,6 +1,6 @@
 const { CognitoIdentityProviderClient, AdminUpdateUserAttributesCommand } = require('@aws-sdk/client-cognito-identity-provider');
 const { DynamoDBClient } = require('@aws-sdk/client-dynamodb');
-const { DynamoDBDocumentClient, PutCommand } = require('@aws-sdk/lib-dynamodb');
+const { DynamoDBDocumentClient, PutCommand, GetCommand } = require('@aws-sdk/lib-dynamodb');
 const response = require('./response');
 
 const cognitoClient = new CognitoIdentityProviderClient({ region: process.env.AWS_REGION });
@@ -30,13 +30,28 @@ exports.handler = async (event) => {
       }));
     }
 
-    // Update role in DynamoDB
-    if (role) {
-      await dynamoClient.send(new PutCommand({
-        TableName: process.env.USER_ROLES_TABLE,
-        Item: { userId: email, role }
-      }));
-    }
+    // Get existing user data from DynamoDB
+    const existingUser = await dynamoClient.send(new GetCommand({
+      TableName: process.env.USER_ROLES_TABLE,
+      Key: { userId: email }
+    }));
+
+    // Update role in DynamoDB - merge with existing data
+    const updateItem = {
+      ...existingUser.Item,
+      userId: email,
+      email,
+      updatedAt: new Date().toISOString()
+    };
+    
+    if (firstName) updateItem.firstName = firstName;
+    if (lastName) updateItem.lastName = lastName;
+    if (role) updateItem.role = role;
+    
+    await dynamoClient.send(new PutCommand({
+      TableName: process.env.USER_ROLES_TABLE,
+      Item: updateItem
+    }));
 
     return response.success({ message: 'User updated successfully' });
 

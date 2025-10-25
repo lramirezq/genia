@@ -694,14 +694,14 @@ aws bedrock-agent start-ingestion-job \
 
 ## 📈 Roadmap Futuro
 
-### Versión 4.0 (Q2 2025)
+### Versión 4.0 (Q4 2025)
 - [ ] Multi-idioma (español, inglés, portugués)
 - [ ] Análisis de sentimiento en consultas
 - [ ] Dashboard de analytics y métricas
 - [ ] Integración con Slack/Teams
 - [ ] API pública para integraciones
 
-### Versión 5.0 (Q3 2025)
+### Versión 5.0 (Q1 2026)
 - [ ] Búsqueda semántica avanzada
 - [ ] Sugerencias automáticas de preguntas
 - [ ] Historial de conversaciones persistente

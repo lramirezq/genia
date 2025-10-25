@@ -7,7 +7,10 @@
             <v-btn icon @click="$router.go(-1)">
               <v-icon>mdi-arrow-left</v-icon>
             </v-btn>
-            <h1 class="d-inline ml-2">{{ catalog?.name }}</h1>
+            <div class="d-inline-block ml-2">
+              <h1>{{ catalog?.name }}</h1>
+              <p class="text-caption text-grey" v-if="catalog?.ownerEmail">Creado por: {{ catalog.ownerEmail }}</p>
+            </div>
           </div>
           <div>
             <v-btn color="secondary" class="mr-2" @click="$router.push(`/catalogs/${$route.params.id}/chat`)">
@@ -71,8 +74,11 @@
               {{ formatFileSize(item.size) }}
             </template>
             <template v-slot:item.actions="{ item }">
+              <v-btn icon small @click="downloadDocument(item)" class="mr-1">
+                <v-icon color="primary">mdi-download</v-icon>
+              </v-btn>
               <v-btn icon small @click="deleteDocument(item)">
-                <v-icon>mdi-delete</v-icon>
+                <v-icon color="error">mdi-delete</v-icon>
               </v-btn>
             </template>
           </v-data-table>
@@ -122,7 +128,7 @@ const headers = [
   { title: 'Nombre', key: 'name' },
   { title: 'Tamaño', key: 'size' },
   { title: 'Fecha', key: 'lastModified' },
-  { title: 'Acciones', key: 'actions', sortable: false }
+  { title: 'Acciones', key: 'actions', sortable: false, align: 'center' }
 ]
 
 const loadDocuments = async () => {
@@ -145,6 +151,18 @@ const uploadDocument = async () => {
   await uploadFile(selectedFile.value)
   showUploadDialog.value = false
   selectedFile.value = null
+}
+
+const downloadDocument = async (document) => {
+  try {
+    const response = await api.get(`/catalogs/${route.params.id}/documents/${encodeURIComponent(document.name)}/download`)
+    if (response.data.success) {
+      window.open(response.data.data.downloadUrl, '_blank')
+    }
+  } catch (error) {
+    console.error('Error downloading document:', error)
+    alert('Error al descargar el documento')
+  }
 }
 
 const deleteDocument = async (document) => {

@@ -1,5 +1,5 @@
 const { DynamoDBClient } = require('@aws-sdk/client-dynamodb');
-const { DynamoDBDocumentClient, ScanCommand, GetItemCommand } = require('@aws-sdk/lib-dynamodb');
+const { DynamoDBDocumentClient, ScanCommand, GetCommand } = require('@aws-sdk/lib-dynamodb');
 const { CognitoIdentityProviderClient, AdminGetUserCommand } = require('@aws-sdk/client-cognito-identity-provider');
 const response = require('./response');
 
@@ -27,20 +27,33 @@ exports.handler = async (event) => {
             Username: permission.userId
           }));
           const emailAttr = userResult.UserAttributes.find(attr => attr.Name === 'email');
-          if (emailAttr) userEmail = emailAttr.Value;
+          if (emailAttr) {
+            userEmail = emailAttr.Value;
+          }
         } catch (err) {
-          console.log('Could not get user:', permission.userId);
+          console.log('Could not get user from Cognito:', permission.userId, err.message);
+          // If userId looks like email, use it as is
+          if (permission.userId.includes('@')) {
+            userEmail = permission.userId;
+          } else {
+            userEmail = `Usuario eliminado (${permission.userId.substring(0, 8)}...)`;
+          }
         }
 
         // Get catalog name from DynamoDB
         try {
-          const catalogResult = await dynamoClient.send(new GetItemCommand({
+          const catalogResult = await dynamoClient.send(new GetCommand({
             TableName: process.env.CATALOGS_TABLE,
             Key: { catalogId: permission.catalogId }
           }));
-          if (catalogResult.Item?.name) catalogName = catalogResult.Item.name;
+          if (catalogResult.Item?.name) {
+            catalogName = catalogResult.Item.name;
+          } else {
+            catalogName = `Catálogo eliminado (${permission.catalogId.substring(0, 8)}...)`;
+          }
         } catch (err) {
-          console.log('Could not get catalog:', permission.catalogId);
+          console.log('Could not get catalog:', permission.catalogId, err.message);
+          catalogName = `Catálogo eliminado (${permission.catalogId.substring(0, 8)}...)`;
         }
 
         return {

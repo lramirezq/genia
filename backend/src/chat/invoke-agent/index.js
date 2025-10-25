@@ -32,7 +32,22 @@ exports.handler = async (event) => {
     const { agentId, ownerId } = catalogResult.Item;
 
     // 2. Check if user has permission to access this catalog
-    const hasPermission = ownerId === userId;
+    let hasPermission = ownerId === userId;
+    
+    if (!hasPermission) {
+      // Check if user is admin
+      try {
+        const userRoleResult = await dynamoClient.send(new GetCommand({
+          TableName: process.env.USER_ROLES_TABLE,
+          Key: { userId }
+        }));
+        if (userRoleResult.Item?.role === 'admin') {
+          hasPermission = true;
+        }
+      } catch (err) {
+        console.log('Could not check user role:', err);
+      }
+    }
     
     if (!hasPermission) {
       // Check if user has explicit permission
@@ -165,7 +180,7 @@ exports.handler = async (event) => {
       });
     }
 
-    // Get all documents in catalog and add as sources if no specific citations
+    // Get all documents in catalog
     const { S3Client: S3, ListObjectsV2Command, GetObjectCommand } = require('@aws-sdk/client-s3');
     const { getSignedUrl } = require('@aws-sdk/s3-request-presigner');
     const s3 = new S3();
@@ -176,30 +191,18 @@ exports.handler = async (event) => {
     }));
     
     const allFiles = (listResult.Contents || [])
-      .filter(obj => obj.Key !== `catalogs/${catalogId}/`)
+      .filter(obj => obj.Key !== `catalogs/${catalogId}/` && obj.Size > 0 && !obj.Key.endsWith('/'))
       .map(obj => ({
         key: obj.Key,
         name: obj.Key.split('/').pop().replace(/^\d+-/, '')
       }));
     
-    // Only add documents as sources if they are actually mentioned in the response
+    // If no citations from Bedrock and response is substantial, include all documents as sources
     if (citations.length === 0 && responseText.length > 100) {
       allFiles.forEach(file => {
-        const fileName = file.name.toLowerCase();
-        const responseTextLower = responseText.toLowerCase();
-        
-        // Check if document name or keywords are mentioned in response
-        const isRelevant = fileName.includes('ipaciente') && responseTextLower.includes('ipaciente') ||
-                          fileName.includes('umb') && responseTextLower.includes('umb') ||
-                          fileName.includes('app') && responseTextLower.includes('app') ||
-                          responseTextLower.includes(fileName.replace(/\.[^/.]+$/, '')) || // filename without extension
-                          responseTextLower.includes(file.name.replace(/\.[^/.]+$/, '').toLowerCase());
-        
-        if (isRelevant) {
-          citations.push({ name: file.name });
-        }
+        citations.push({ name: file.name });
       });
-      console.log(`Added ${citations.length} relevant documents as sources`);
+      console.log(`Added ${citations.length} documents as sources (no Bedrock citations)`);
     }
     
     // Generate download URLs

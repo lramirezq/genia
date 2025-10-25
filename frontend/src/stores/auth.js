@@ -31,6 +31,9 @@ export const useAuthStore = defineStore('auth', {
           this.tokens = data
           this.isAuthenticated = true
           
+          // Save token FIRST before making any API calls
+          localStorage.setItem('idToken', this.tokens.idToken)
+          
           // Decode user info from token
           const payload = JSON.parse(atob(this.tokens.idToken.split('.')[1]))
           this.user = {
@@ -40,10 +43,8 @@ export const useAuthStore = defineStore('auth', {
             role: payload.email === 'admin@genia.com' ? 'admin' : 'user'
           }
           
+          // Get role from API (now token is in localStorage)
           await this.getUserRole()
-          
-          localStorage.clear()
-          localStorage.setItem('idToken', this.tokens.idToken)
           
           return { success: true }
         }
@@ -94,6 +95,9 @@ export const useAuthStore = defineStore('auth', {
           this.tokens = data
           this.isAuthenticated = true
           
+          // Save token FIRST
+          localStorage.setItem('idToken', this.tokens.idToken)
+          
           const payload = JSON.parse(atob(this.tokens.idToken.split('.')[1]))
           this.user = {
             email: payload.email,
@@ -102,10 +106,8 @@ export const useAuthStore = defineStore('auth', {
             role: payload.email === 'admin@genia.com' ? 'admin' : 'user'
           }
           
+          // Get role from API (now token is in localStorage)
           await this.getUserRole()
-          
-          localStorage.clear()
-          localStorage.setItem('idToken', this.tokens.idToken)
           
           return { success: true }
         }
