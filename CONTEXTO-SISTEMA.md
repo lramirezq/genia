@@ -1,8 +1,8 @@
 # 📋 Contexto del Sistema GenIA
 
-## 🎯 Versión Actual: 4.3.0 - PRODUCTION READY
+## 🎯 Versión Actual: 4.4.0 - PRODUCTION READY
 
-**Fecha:** 24 Enero 2025  
+**Fecha:** 25 Enero 2025  
 **Estado:** Producción Completa  
 **Deployment:** Automatizado + Guía Completa  
 **URL Producción:** https://d2arlg3pewzp57.cloudfront.net
@@ -372,6 +372,16 @@ aws dynamodb create-backup --table-name TABLE_NAME --backup-name backup-$(date +
 - Creación de usuarios sin errores
 - Guía completa de despliegue (DEPLOYMENT-GUIDE-COMPLETE.md)
 
+### ✅ Completado v4.4.0
+- Fix: Búsqueda de usuarios por sub en Cognito (ListUsersCommand con filtro)
+- Fix: Rol de admin busca por email como fallback
+- Fix: Permisos de lectura UserRolesTable en InvokeAgentFunction
+- Fix: Visualización correcta de emails en lista de permisos
+- Fix: Admin puede ver todos los catálogos en dropdown de permisos
+- Fix: Chat funciona correctamente con permisos asignados
+- Feature: Fuzzy matching de fuentes en respuestas de chat
+- Optimization: Timeout de Bedrock reducido a 20s
+
 ### 🚧 En Progreso
 - Ninguno (sistema estable)
 
@@ -398,7 +408,7 @@ aws dynamodb create-backup --table-name TABLE_NAME --backup-name backup-$(date +
 
 ---
 
-*Contexto del Sistema - Versión 4.3.0*  
-*Última actualización: 24 Enero 2025*  
+*Contexto del Sistema - Versión 4.4.0*  
+*Última actualización: 25 Enero 2025*  
 *Sistema GenIA - Production Ready - Despliegue Completo*  
 *URL Producción: https://d2arlg3pewzp57.cloudfront.net*

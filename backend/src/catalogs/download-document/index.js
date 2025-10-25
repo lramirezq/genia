@@ -9,12 +9,14 @@ const dynamoClient = DynamoDBDocumentClient.from(new DynamoDBClient());
 
 exports.handler = async (event) => {
   try {
-    const { catalogId, fileName } = event.pathParameters;
+    const { catalogId, documentName } = event.pathParameters;
     const userId = event.requestContext?.authorizer?.claims?.sub;
 
-    if (!catalogId || !fileName) {
+    if (!catalogId || !documentName) {
       return response.error('Catalog ID and file name are required');
     }
+    
+    const fileName = decodeURIComponent(documentName);
 
     if (!userId) {
       return response.unauthorized('User not authenticated');

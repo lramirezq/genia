@@ -155,7 +155,9 @@ const uploadDocument = async () => {
 
 const downloadDocument = async (document) => {
   try {
-    const response = await api.get(`/catalogs/${route.params.id}/documents/${encodeURIComponent(document.name)}/download`)
+    // Remove timestamp prefix from document name
+    const cleanName = document.name.replace(/^\d+-/, '')
+    const response = await api.get(`/catalogs/${route.params.id}/documents/${encodeURIComponent(cleanName)}/download`)
     if (response.data.success) {
       window.open(response.data.data.downloadUrl, '_blank')
     }

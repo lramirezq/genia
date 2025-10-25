@@ -18,14 +18,21 @@ exports.handler = async (event) => {
 
     // Check if user is admin
     let isAdmin = false;
-    console.log('Checking role for userId:', userId);
-    console.log('USER_ROLES_TABLE:', process.env.USER_ROLES_TABLE);
+    const userEmail = event.requestContext?.authorizer?.claims?.email;
+    console.log('Checking role for userId:', userId, 'email:', userEmail);
     try {
-      const userRoleResult = await dynamoClient.send(new GetCommand({
+      // Try by sub first
+      let userRoleResult = await dynamoClient.send(new GetCommand({
         TableName: process.env.USER_ROLES_TABLE,
         Key: { userId }
       }));
-      console.log('User role result:', JSON.stringify(userRoleResult.Item));
+      // If not found by sub, try by email
+      if (!userRoleResult.Item && userEmail) {
+        userRoleResult = await dynamoClient.send(new GetCommand({
+          TableName: process.env.USER_ROLES_TABLE,
+          Key: { userId: userEmail }
+        }));
+      }
       isAdmin = userRoleResult.Item?.role === 'admin';
       console.log('Is admin:', isAdmin);
     } catch (err) {

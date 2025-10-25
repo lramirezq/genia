@@ -149,6 +149,26 @@ export const useAuthStore = defineStore('auth', {
         localStorage.removeItem('idToken')
         this.isAuthenticated = false
       }
+    },
+
+    async changePassword(currentPassword, newPassword) {
+      try {
+        const response = await api.post('/auth/change-password', {
+          email: this.user.email,
+          currentPassword,
+          newPassword
+        })
+        
+        if (response.data.success) {
+          return { success: true }
+        }
+        return { success: false, error: response.data.error }
+      } catch (error) {
+        return { 
+          success: false, 
+          error: error.response?.data?.error || 'Error al cambiar contraseña' 
+        }
+      }
     }
   }
 })

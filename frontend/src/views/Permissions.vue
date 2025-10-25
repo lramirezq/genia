@@ -98,15 +98,22 @@ const loadData = async () => {
       api.get('/permissions')
     ])
     
+    console.log('Users response:', usersRes.data)
+    console.log('Catalogs response:', catalogsRes.data)
+    console.log('Permissions response:', permissionsRes.data)
+    
     if (usersRes.data.success) {
       users.value = usersRes.data.data.users
+      console.log('Users loaded:', users.value.length)
     }
     if (catalogsRes.data.success) {
       catalogs.value = catalogsRes.data.data.catalogs
+      console.log('Catalogs loaded:', catalogs.value.length)
     }
     if (permissionsRes.data.success) {
       // Permissions already come enriched with userEmail and catalogName from backend
       permissions.value = permissionsRes.data.data.permissions
+      console.log('Permissions loaded:', permissions.value.length)
     }
   } catch (error) {
     console.error('Error loading data:', error)

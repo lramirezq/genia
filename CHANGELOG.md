@@ -1,5 +1,26 @@
 # 📝 Changelog - Sistema GenIA
 
+## [4.4.0] - 2025-01-25
+
+### 🔧 Fixed - Sistema de Permisos y Búsqueda de Usuarios
+- **Búsqueda de usuarios por sub**: ListPermissionsFunction ahora busca usuarios en Cognito usando ListUsersCommand con filtro `sub = "userId"` cuando userId es UUID
+- **Rol de admin por email**: ListCatalogsFunction e InvokeAgentFunction buscan rol primero por sub, luego por email como fallback
+- **Permisos de lectura**: InvokeAgentFunction agregado permiso DynamoDBReadPolicy para UserRolesTable
+- **Visualización de permisos**: Usuarios con UUID ahora muestran email correcto en lugar de "Usuario eliminado"
+- **Acceso a catálogos**: Admin puede ver todos los catálogos en dropdown de permisos
+- **Chat con permisos**: Usuarios con permisos asignados pueden chatear correctamente
+
+### 🎯 Changed - Extracción de Fuentes
+- **Fuzzy matching de fuentes**: Sistema extrae fuentes de documentos usando coincidencia de palabras clave del nombre del archivo en el texto de respuesta
+- **Timeout reducido**: Timeout de streaming de Bedrock reducido de 25s a 20s para evitar 504 Gateway Timeout
+- **Logs de debug**: Agregados logs detallados para debugging de fuzzy matching
+
+### 📚 Documentation
+- Actualizado conversation summary con correcciones de permisos
+- Documentado problema de userId como UUID vs email en DynamoDB
+
+---
+
 ## [4.3.0] - 2025-01-24
 
 ### 🎉 New Features

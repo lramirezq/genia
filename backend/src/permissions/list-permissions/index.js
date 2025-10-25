@@ -1,6 +1,6 @@
 const { DynamoDBClient } = require('@aws-sdk/client-dynamodb');
 const { DynamoDBDocumentClient, ScanCommand, GetCommand } = require('@aws-sdk/lib-dynamodb');
-const { CognitoIdentityProviderClient, AdminGetUserCommand } = require('@aws-sdk/client-cognito-identity-provider');
+const { CognitoIdentityProviderClient, AdminGetUserCommand, ListUsersCommand } = require('@aws-sdk/client-cognito-identity-provider');
 const response = require('./response');
 
 const dynamoClient = DynamoDBDocumentClient.from(new DynamoDBClient());
@@ -22,17 +22,33 @@ exports.handler = async (event) => {
 
         // Get user email from Cognito
         try {
-          const userResult = await cognitoClient.send(new AdminGetUserCommand({
-            UserPoolId: process.env.COGNITO_USER_POOL_ID,
-            Username: permission.userId
-          }));
-          const emailAttr = userResult.UserAttributes.find(attr => attr.Name === 'email');
-          if (emailAttr) {
-            userEmail = emailAttr.Value;
+          // If userId looks like email, use AdminGetUser
+          if (permission.userId.includes('@')) {
+            const userResult = await cognitoClient.send(new AdminGetUserCommand({
+              UserPoolId: process.env.COGNITO_USER_POOL_ID,
+              Username: permission.userId
+            }));
+            const emailAttr = userResult.UserAttributes.find(attr => attr.Name === 'email');
+            if (emailAttr) {
+              userEmail = emailAttr.Value;
+            }
+          } else {
+            // If userId is UUID (sub), use ListUsers with filter
+            const listResult = await cognitoClient.send(new ListUsersCommand({
+              UserPoolId: process.env.COGNITO_USER_POOL_ID,
+              Filter: `sub = "${permission.userId}"`
+            }));
+            if (listResult.Users && listResult.Users.length > 0) {
+              const emailAttr = listResult.Users[0].Attributes.find(attr => attr.Name === 'email');
+              if (emailAttr) {
+                userEmail = emailAttr.Value;
+              }
+            } else {
+              userEmail = `Usuario eliminado (${permission.userId.substring(0, 8)}...)`;
+            }
           }
         } catch (err) {
           console.log('Could not get user from Cognito:', permission.userId, err.message);
-          // If userId looks like email, use it as is
           if (permission.userId.includes('@')) {
             userEmail = permission.userId;
           } else {

@@ -36,11 +36,20 @@ exports.handler = async (event) => {
     
     if (!hasPermission) {
       // Check if user is admin
+      const userEmail = event.requestContext?.authorizer?.claims?.email;
       try {
-        const userRoleResult = await dynamoClient.send(new GetCommand({
+        // Try by sub first
+        let userRoleResult = await dynamoClient.send(new GetCommand({
           TableName: process.env.USER_ROLES_TABLE,
           Key: { userId }
         }));
+        // If not found by sub, try by email
+        if (!userRoleResult.Item && userEmail) {
+          userRoleResult = await dynamoClient.send(new GetCommand({
+            TableName: process.env.USER_ROLES_TABLE,
+            Key: { userId: userEmail }
+          }));
+        }
         if (userRoleResult.Item?.role === 'admin') {
           hasPermission = true;
         }
@@ -92,7 +101,7 @@ exports.handler = async (event) => {
     let responseText = '';
     let citations = [];
     const startTime = Date.now();
-    const maxTime = 25000; // 25 seconds to stay under API Gateway limit
+    const maxTime = 20000; // 20 seconds to stay under API Gateway limit
     
     try {
       for await (const chunk of agentResponse.completion) {
@@ -168,18 +177,6 @@ exports.handler = async (event) => {
       }
     });
     
-    // If still no citations, try to find any document references in the response
-    if (citations.length === 0) {
-      // Look for common document names mentioned in the response
-      const docNames = ['Diseño de bajo nivel', 'Linea Base UMB', 'proyecto', 'migración'];
-      docNames.forEach(docName => {
-        if (responseText.toLowerCase().includes(docName.toLowerCase())) {
-          // This is a fallback - we'll try to find any document in the catalog
-          console.log(`Found reference to ${docName}, will include all catalog documents`);
-        }
-      });
-    }
-
     // Get all documents in catalog
     const { S3Client: S3, ListObjectsV2Command, GetObjectCommand } = require('@aws-sdk/client-s3');
     const { getSignedUrl } = require('@aws-sdk/s3-request-presigner');
@@ -197,15 +194,27 @@ exports.handler = async (event) => {
         name: obj.Key.split('/').pop().replace(/^\d+-/, '')
       }));
     
-    // If no citations from Bedrock and response is substantial, include all documents as sources
+    // If still no citations and response has content, try fuzzy matching with file names
     if (citations.length === 0 && responseText.length > 100) {
+      console.log('Attempting fuzzy match. Files:', allFiles.map(f => f.name));
       allFiles.forEach(file => {
-        citations.push({ name: file.name });
+        const fileNameLower = file.name.toLowerCase().replace(/\.[^.]+$/, '').replace(/[\[\]()]/g, ' ');
+        const responseTextLower = responseText.toLowerCase();
+        // Check if significant parts of filename appear in response
+        const words = fileNameLower.split(/[-_\s]+/).filter(w => w.length > 3);
+        console.log(`Checking ${file.name}: words=${words.join(',')}`);
+        const matchedWords = words.filter(word => responseTextLower.includes(word));
+        console.log(`Matched words: ${matchedWords.join(',')}`);
+        // Match if at least 1 significant word matches
+        if (matchedWords.length > 0) {
+          citations.push({ name: file.name });
+          console.log(`Added ${file.name} as citation`);
+        }
       });
-      console.log(`Added ${citations.length} documents as sources (no Bedrock citations)`);
+      console.log(`Fuzzy matched ${citations.length} documents from response text`);
     }
     
-    // Generate download URLs
+    // Generate download URLs for citations
     for (const citation of citations) {
       try {
         const file = allFiles.find(f => f.name === citation.name);

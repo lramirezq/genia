@@ -594,6 +594,8 @@ Resources:
             TableName: !Ref CatalogsTable
         - DynamoDBReadPolicy:
             TableName: !Ref PermissionsTable
+        - DynamoDBReadPolicy:
+            TableName: !Ref UserRolesTable
         - S3ReadPolicy:
             BucketName: !Ref DocumentsBucket
         - Version: '2012-10-17'
@@ -638,7 +640,9 @@ Resources:
         - Version: '2012-10-17'
           Statement:
             - Effect: Allow
-              Action: cognito-idp:AdminGetUser
+              Action:
+                - cognito-idp:AdminGetUser
+                - cognito-idp:ListUsers
               Resource: !GetAtt CognitoUserPool.Arn
       Events:
         Api:
@@ -742,7 +746,7 @@ Resources:
           Type: Api
           Properties:
             RestApiId: !Ref ApiGateway
-            Path: /catalogs/{catalogId}/download/{fileName}
+            Path: /catalogs/{catalogId}/documents/{documentName}/download
             Method: get
 
   # OPTIONS handler for CORS preflight
@@ -861,6 +865,14 @@ Resources:
           Properties:
             RestApiId: !Ref ApiGateway
             Path: /catalogs/{catalogId}/download/{fileName}
+            Method: options
+            Auth:
+              Authorizer: NONE
+        DownloadDocumentOptions2:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ApiGateway
+            Path: /catalogs/{catalogId}/documents/{documentName}/download
             Method: options
             Auth:
               Authorizer: NONE
