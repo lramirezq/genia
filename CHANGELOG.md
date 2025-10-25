@@ -390,15 +390,5 @@
 
   ---
 
-  ## CREDENCIALES FINALES
-  - **Admin**: admin@genia.com / AdminPass123!
-  - **API**: https://z5bmc2llf7.execute-api.us-east-1.amazonaws.com/dev
-  - **Frontend**: http://localhost:3000
-  - **Cognito Pool**: us-east-1_hKTZfhNZy
-  - **S3 Bucket**: dev-genia-docs-369595298303
-  - **OpenSearch**: genia-dev collection
-
-  ---
-
   *Sistema GenIA - Versión 3.0 - PRODUCCIÓN READY*
   *Desarrollado con Vue.js 3 + AWS SAM + Bedrock + OpenSearch Serverless*
