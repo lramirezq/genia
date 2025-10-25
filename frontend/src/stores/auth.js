@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 import { signIn, signOut, getCurrentUser } from 'aws-amplify/auth'
 import api from '../config/api'
+import { logEvent, ACTIONS } from '../utils/auditLogger'
 
 export const useAuthStore = defineStore('auth', {
   state: () => ({
@@ -46,6 +47,9 @@ export const useAuthStore = defineStore('auth', {
           // Get role from API (now token is in localStorage)
           await this.getUserRole()
           
+          // Log login event
+          await logEvent(ACTIONS.LOGIN, 'AUTH', payload.sub, this.user.email)
+          
           return { success: true }
         }
       } catch (error) {
@@ -55,6 +59,11 @@ export const useAuthStore = defineStore('auth', {
 
     async logout() {
       try {
+        // Log logout event before clearing user
+        if (this.user) {
+          const payload = JSON.parse(atob(this.tokens.idToken.split('.')[1]))
+          await logEvent(ACTIONS.LOGOUT, 'AUTH', payload.sub, this.user.email)
+        }
         await signOut()
       } catch (error) {
         console.error('Logout error:', error)

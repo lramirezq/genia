@@ -155,11 +155,8 @@ const createCatalog = async () => {
     if (response.data.success) {
       showCreateDialog.value = false
       newCatalog.value = { name: '', description: '' }
-      loadCatalogs()
-      // Start polling for status updates
-      if (response.data.catalogId) {
-        startStatusPolling(response.data.catalogId)
-      }
+      await loadCatalogs()
+      startPolling()
     }
   } catch (error) {
     console.error('Error creating catalog:', error)
@@ -288,17 +285,21 @@ const deleteCatalog = async (catalog) => {
   }
 }
 
-onMounted(() => {
-  loadCatalogs()
-  // Start polling for any creating catalogs
-  const interval = setInterval(() => {
+let pollingInterval = null
+
+const startPolling = () => {
+  if (pollingInterval) return
+  pollingInterval = setInterval(() => {
     const creatingCatalogs = catalogs.value.filter(c => c.status === 'creating')
-    if (creatingCatalogs.length === 0) {
-      clearInterval(interval)
-    } else {
+    if (creatingCatalogs.length > 0) {
       loadCatalogs()
     }
   }, 5000)
+}
+
+onMounted(() => {
+  loadCatalogs()
+  startPolling()
 })
 </script>
 

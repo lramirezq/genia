@@ -7,6 +7,7 @@
         <v-list-item prepend-icon="mdi-chat" title="Chat" to="/chat" />
         <v-list-item v-if="isAdmin" prepend-icon="mdi-account-group" title="Usuarios" to="/users" />
         <v-list-item v-if="isAdmin" prepend-icon="mdi-shield-account" title="Permisos" to="/permissions" />
+        <v-list-item v-if="isAdmin" prepend-icon="mdi-history" title="Registro de Eventos" to="/audit-logs" />
         <v-list-item prepend-icon="mdi-logout" title="Cerrar Sesión" @click="logout" />
       </v-list>
     </v-navigation-drawer>
